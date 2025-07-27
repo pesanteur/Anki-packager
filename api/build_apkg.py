@@ -1,8 +1,8 @@
 # api/build_apkg.py
-import base64, hashlib, io, json, re, tempfile, os
+import base64, hashlib, json, re, tempfile, os
 from typing import List, Literal, Optional
 from urllib.parse import urlparse
-from fastapi import FastAPI, Request, Response, HTTPException
+from fastapi import FastAPI, Request, HTTPException
 from pydantic import BaseModel, Field, validator
 
 app = FastAPI()
@@ -18,13 +18,13 @@ class Card(BaseModel):
 
     @validator("front", always=False)
     def v_front(cls, v, values):
-        if values.get("note_type") in ["Basic", "Basic (and reverse)"] and not v:
+        if values.get("note_type") in ["Basic","Basic (and reverse)"] and not v:
             raise ValueError("front required for Basic/Reverse")
         return v
 
     @validator("back", always=False)
     def v_back(cls, v, values):
-        if values.get("note_type") in ["Basic", "Basic (and reverse)"] and not v:
+        if values.get("note_type") in ["Basic","Basic (and reverse)"] and not v:
             raise ValueError("back required for Basic/Reverse")
         return v
 
@@ -109,14 +109,16 @@ def build_apkg_bytes(deck_name: str, cards: List[Card]) -> bytes:
         try: os.remove(tmp.name)
         except OSError: pass
 
+# Accept both "/api/build_apkg" and "/"
 @app.post("/")
+@app.post("/api/build_apkg")
 def build(req: BuildRequest, request: Request):
-    # Build a ready-to-click /api/download URL on the same domain
     payload = {
         "deck_name": req.deck_name or "Learning AI",
         "cards": [c.model_dump() for c in req.cards],
     }
     b64 = base64.urlsafe_b64encode(json.dumps(payload).encode("utf-8")).decode("ascii")
+    # Build same-origin download URL
     u = urlparse(str(request.base_url))
     origin = f"{u.scheme}://{u.netloc}"
     return {"download_url": f"{origin}/api/download?payload={b64}"}

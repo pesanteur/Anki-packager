@@ -1,8 +1,9 @@
 # api/download.py
-import base64, json, re, hashlib, tempfile, os
+import base64, json, re
 from typing import List, Literal, Optional
 from fastapi import FastAPI, Response, HTTPException
 from pydantic import BaseModel
+from .build_apkg import build_apkg_bytes  # reuse the builder
 
 app = FastAPI()
 
@@ -19,10 +20,8 @@ class BuildPayload(BaseModel):
     deck_name: Optional[str] = "Learning AI"
     cards: List[Card]
 
-# import the same builders from build_apkg.py
-from .build_apkg import build_apkg_bytes  # type: ignore
-
 @app.get("/")
+@app.get("/api/download")
 def download(payload: str):
     try:
         data = json.loads(base64.urlsafe_b64decode(payload.encode("ascii")))
