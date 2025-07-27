@@ -1,4 +1,4 @@
-import base64, hashlib, io, json, re
+import base64, hashlib, io, json, re, tempfile, os
 from typing import List, Literal, Optional
 from fastapi import FastAPI, Response, HTTPException, Request
 from pydantic import BaseModel, Field, validator
@@ -63,8 +63,6 @@ def normalize_tags(tags: Optional[List[str]]) -> List[str]:
 # ---------- Build helpers ----------
 def build_apkg(deck_name: str, cards: List[Card]) -> bytes:
   import genanki
-
-  # stable deck id derived from deck name
   deck_id = int(hashlib.sha256(deck_name.encode("utf-8")).hexdigest()[:12], 16)
 
   BASIC_MODEL_ID = 1607392319
@@ -74,11 +72,7 @@ def build_apkg(deck_name: str, cards: List[Card]) -> bytes:
   basic_model = genanki.Model(
     BASIC_MODEL_ID, "Basic",
     fields=[{"name": "Front"}, {"name": "Back"}],
-    templates=[{
-      "name": "Card 1",
-      "qfmt": "{{Front}}",
-      "afmt": "{{FrontSide}}<hr id=\"answer\">{{Back}}"
-    }],
+    templates=[{"name": "Card 1", "qfmt": "{{Front}}", "afmt": "{{FrontSide}}<hr id=\"answer\">{{Back}}"}],
     css=".card { font-family: arial; font-size: 16px; text-align: left; }",
   )
 
@@ -86,16 +80,8 @@ def build_apkg(deck_name: str, cards: List[Card]) -> bytes:
     BASIC_MODEL_ID + 1, REVERSE_NAME,
     fields=[{"name": "Front"}, {"name": "Back"}],
     templates=[
-      {
-        "name": "Forward",
-        "qfmt": "{{Front}}",
-        "afmt": "{{FrontSide}}<hr id=\"answer\">{{Back}}"
-      },
-      {
-        "name": "Reverse",
-        "qfmt": "{{Back}}",
-        "afmt": "{{Back}}<hr id=\"answer\">{{Front}}"
-      }
+      {"name": "Forward", "qfmt": "{{Front}}", "afmt": "{{FrontSide}}<hr id=\"answer\">{{Back}}"},
+      {"name": "Reverse", "qfmt": "{{Back}}",  "afmt": "{{Back}}<hr id=\"answer\">{{Front}}"}
     ],
     css=".card { font-family: arial; font-size: 16px; text-align: left; }",
   )
@@ -103,11 +89,7 @@ def build_apkg(deck_name: str, cards: List[Card]) -> bytes:
   cloze_model = genanki.Model(
     CLOZE_MODEL_ID, "Cloze",
     fields=[{"name": "Text"}],
-    templates=[{
-      "name": "Cloze",
-      "qfmt": "{{cloze:Text}}",
-      "afmt": "{{cloze:Text}}"
-    }],
+    templates=[{"name": "Cloze", "qfmt": "{{cloze:Text}}", "afmt": "{{cloze:Text}}"}],
     css=".card { font-family: arial; font-size: 16px; text-align: left; }",
     model_type=genanki.Model.CLOZE,
   )
@@ -124,10 +106,16 @@ def build_apkg(deck_name: str, cards: List[Card]) -> bytes:
       note = genanki.Note(model=cloze_model, fields=[c.text], tags=t)
     deck.add_note(note)
 
-  pkg = genanki.Package(deck)
-  buf = io.BytesIO()
-  pkg.write_to_file(buf)  # type: ignore
-  return buf.getvalue()
+  # Write to a temp file in /tmp (writeable on Vercel)
+  tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".apkg", dir="/tmp")
+  tmp.close()
+  try:
+    genanki.Package(deck).write_to_file(tmp.name)
+    with open(tmp.name, "rb") as f:
+      return f.read()
+  finally:
+    try: os.remove(tmp.name)
+    except OSError: pass
 
 def build_download_link(base_url: str, payload: dict) -> str:
   # encode small payload in URL for a stateless GET -> file download
